@@ -169,9 +169,10 @@ class ClashManager:
             config["external-controller"] = "127.0.0.1:9090"
             config["mode"] = "global"  # 全局模式
             
-            # 保存配置
-            CLASH_DIR.mkdir(parents=True, exist_ok=True)
-            with open(CLASH_CONFIG_PATH, "w", encoding="utf-8") as f:
+            # 保存配置（支持本地开发和 Docker 环境）
+            config_path = self._get_config_path()
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
                 yaml.dump(config, f, allow_unicode=True)
             
             self._last_update = datetime.now()
@@ -205,41 +206,45 @@ class ClashManager:
     
     async def get_proxies(self) -> List[Dict]:
         """获取所有代理节点"""
-        # 优先从 API 获取
-        if await self.is_running():
-            try:
-                async with httpx.AsyncClient(timeout=5) as client:
-                    resp = await client.get(f"{CLASH_API}/proxies")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        proxies = []
-                        for name, info in data.get("proxies", {}).items():
-                            if info.get("type") not in ["Direct", "Reject", "Selector", "URLTest", "Fallback", "LoadBalance"]:
-                                proxies.append({
-                                    "name": name,
-                                    "type": info.get("type", "Unknown"),
-                                    "now": info.get("now", "")
-                                })
-                        self._proxies_cache = proxies
-                        return proxies
-            except Exception as e:
-                logger.warning(f"[Clash] 获取节点列表失败: {e}")
+        proxies = []
         
-        # 从配置文件获取
-        if CLASH_CONFIG_PATH.exists():
+        # 首先尝试直接从配置文件获取（最可靠的方式）
+        config_path = self._get_config_path()
+        logger.debug(f"[Clash] 尝试读取配置: {config_path}, 存在: {config_path.exists()}")
+        
+        if config_path.exists():
             try:
-                with open(CLASH_CONFIG_PATH, "r", encoding="utf-8") as f:
+                with open(config_path, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f)
-                proxies = [
-                    {"name": p.get("name", ""), "type": p.get("type", "Unknown"), "now": ""}
-                    for p in config.get("proxies", [])
-                ]
-                self._proxies_cache = proxies
-                return proxies
-            except:
-                pass
+                
+                if config and isinstance(config, dict) and "proxies" in config:
+                    raw_proxies = config.get("proxies", [])
+                    if isinstance(raw_proxies, list):
+                        for p in raw_proxies:
+                            if isinstance(p, dict) and p.get("name"):
+                                proxies.append({
+                                    "name": p.get("name"),
+                                    "type": p.get("type", "Unknown"),
+                                    "now": ""
+                                })
+                        logger.info(f"[Clash] 从配置文件读取到 {len(proxies)} 个节点")
+            except Exception as e:
+                logger.error(f"[Clash] 读取配置文件失败: {e}")
         
-        return self._proxies_cache
+        # 如果配置文件没有读到节点，返回缓存或空列表
+        if proxies:
+            self._proxies_cache = proxies
+        
+        return self._proxies_cache if self._proxies_cache else []
+    
+    def _get_config_path(self) -> Path:
+        """获取配置文件路径，支持本地开发和 Docker 环境"""
+        # Docker 环境
+        if CLASH_CONFIG_PATH.parent.exists():
+            return CLASH_CONFIG_PATH
+        # 本地开发环境
+        local_path = Path(__file__).parents[2] / "data" / "clash" / "config.yaml"
+        return local_path
     
     async def select_proxy(self, name: str) -> Dict[str, Any]:
         """选择代理节点"""
