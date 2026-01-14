@@ -13,6 +13,7 @@ DEFAULT_GROK = {
     "proxy_pool_interval": 300,
     "cache_proxy_url": "",
     "cf_clearance": "",
+    "custom_ua": "",
     "x_statsig_id": "",
     "dynamic_statsig": True,
     "filtered_tags": "xaiartifact,xai:tool_usage_card",

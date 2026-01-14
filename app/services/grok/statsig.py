@@ -73,6 +73,12 @@ def get_dynamic_headers(pathname: str = "/rest/app-chat/conversations/new") -> D
 
     # 构建请求头
     headers = BASE_HEADERS.copy()
+    
+    # 使用自定义 UA（如果配置了）
+    custom_ua = setting.grok_config.get("custom_ua", "")
+    if custom_ua:
+        headers["User-Agent"] = custom_ua
+    
     headers["x-statsig-id"] = statsig_id
     headers["x-xai-request-id"] = str(uuid.uuid4())
     headers["Content-Type"] = "text/plain;charset=UTF-8" if "upload-file" in pathname else "application/json"
