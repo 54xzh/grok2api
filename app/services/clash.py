@@ -270,8 +270,11 @@ class ClashManager:
                 last_error = ""
                 for group in selector_groups:
                     try:
+                        # URL 编码代理组名称（处理 emoji 等特殊字符）
+                        from urllib.parse import quote
+                        encoded_group = quote(group, safe='')
                         resp = await client.put(
-                            f"{CLASH_API}/proxies/{group}",
+                            f"{CLASH_API}/proxies/{encoded_group}",
                             json={"name": name}
                         )
                         
