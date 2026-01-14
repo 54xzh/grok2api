@@ -25,6 +25,10 @@ DEFAULT_GROK = {
     "stream_chunk_timeout": 120,
     "stream_total_timeout": 600,
     "retry_status_codes": [401, 429],  # 可重试的HTTP状态码
+    "clash_enabled": False,
+    "clash_subscription_url": "",
+    "clash_proxy_node": "",
+    "clash_update_interval": 86400,  # 24小时
 }
 
 DEFAULT_GLOBAL = {

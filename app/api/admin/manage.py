@@ -620,3 +620,88 @@ async def test_token(request: TestTokenRequest, _: bool = Depends(verify_admin_s
     except Exception as e:
         logger.error(f"[Admin] Token测试异常: {e}")
         raise HTTPException(status_code=500, detail={"error": f"测试失败: {e}", "code": "TEST_TOKEN_ERROR"})
+
+
+# === Clash API端点 ===
+
+class SelectClashProxyRequest(BaseModel):
+    name: str
+
+
+@router.get("/api/clash/status")
+async def get_clash_status(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """获取 Clash 状态"""
+    try:
+        from app.services.clash import clash_manager
+        status = await clash_manager.get_status()
+        return {"success": True, "data": status}
+    except Exception as e:
+        logger.error(f"[Admin] 获取Clash状态失败: {e}")
+        return {"success": False, "error": str(e), "data": {"running": False}}
+
+
+@router.get("/api/clash/proxies")
+async def get_clash_proxies(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """获取 Clash 节点列表"""
+    try:
+        from app.services.clash import clash_manager
+        proxies = await clash_manager.get_proxies()
+        current = await clash_manager.get_current_proxy()
+        return {"success": True, "data": {"proxies": proxies, "current": current}}
+    except Exception as e:
+        logger.error(f"[Admin] 获取Clash节点失败: {e}")
+        return {"success": False, "error": str(e), "data": {"proxies": [], "current": ""}}
+
+
+@router.post("/api/clash/select")
+async def select_clash_proxy(request: SelectClashProxyRequest, _: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """切换 Clash 节点"""
+    try:
+        from app.services.clash import clash_manager
+        result = await clash_manager.select_proxy(request.name)
+        
+        if result.get("success"):
+            # 同时更新配置保存当前节点
+            await setting.save(grok_config={"clash_proxy_node": request.name})
+        
+        return result
+    except Exception as e:
+        logger.error(f"[Admin] 切换Clash节点失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/api/clash/update")
+async def update_clash_subscription(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """更新 Clash 订阅"""
+    try:
+        from app.services.clash import clash_manager
+        result = await clash_manager.update_subscription()
+        return result
+    except Exception as e:
+        logger.error(f"[Admin] 更新Clash订阅失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/api/clash/start")
+async def start_clash(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """启动 Clash"""
+    try:
+        from app.services.clash import clash_manager
+        success = await clash_manager.start()
+        return {"success": success, "message": "Clash 启动成功" if success else "Clash 启动失败"}
+    except Exception as e:
+        logger.error(f"[Admin] 启动Clash失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/api/clash/stop")
+async def stop_clash(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """停止 Clash"""
+    try:
+        from app.services.clash import clash_manager
+        success = await clash_manager.stop()
+        return {"success": success, "message": "Clash 已停止" if success else "Clash 停止失败"}
+    except Exception as e:
+        logger.error(f"[Admin] 停止Clash失败: {e}")
+        return {"success": False, "error": str(e)}
+

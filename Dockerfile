@@ -28,11 +28,21 @@ RUN rm -rf /usr/share/doc/* \
   /tmp/* \
   /var/tmp/*
 
+# 下载 Clash Meta (mihomo)
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
+  wget -q -O /tmp/mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.18.10/mihomo-linux-amd64-v1.18.10.gz && \
+  gunzip /tmp/mihomo.gz && \
+  mv /tmp/mihomo /usr/local/bin/clash && \
+  chmod +x /usr/local/bin/clash && \
+  apt-get purge -y wget && \
+  apt-get autoremove -y && \
+  rm -rf /var/lib/apt/lists/* /tmp/*
+
 # 从构建阶段复制已安装的包
 COPY --from=builder /install /usr/local
 
-# 创建必要的目录（包括用于挂载的data目录）
-RUN mkdir -p /app/logs /app/data/temp/image /app/data/temp/video
+# 创建必要的目录（包括用于挂载的data目录和clash配置目录）
+RUN mkdir -p /app/logs /app/data/temp/image /app/data/temp/video /app/data/clash
 
 # 复制应用代码
 COPY app/ ./app/

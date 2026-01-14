@@ -29,6 +29,7 @@ api_key = ""
 proxy_url = ""
 cache_proxy_url = ""
 cf_clearance = ""
+custom_ua = ""
 x_statsig_id = ""
 dynamic_statsig = true
 filtered_tags = "xaiartifact,xai:tool_usage_card,grok:render"
@@ -40,6 +41,10 @@ show_thinking = true
 proxy_pool_url = ""
 proxy_pool_interval = 300
 retry_status_codes = [401, 429]
+clash_enabled = false
+clash_subscription_url = ""
+clash_proxy_node = ""
+clash_update_interval = 86400
 EOF
 fi
 
@@ -50,6 +55,43 @@ if [ ! -f /app/data/token.json ]; then
 fi
 
 echo "[Grok2API] 配置文件检查完成"
+
+# 初始化 Clash 配置（如果不存在）
+if [ ! -f /app/data/clash/config.yaml ]; then
+    echo "[Grok2API] 初始化 Clash 配置..."
+    cat > /app/data/clash/config.yaml << 'EOF'
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: warning
+external-controller: 127.0.0.1:9090
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  nameserver:
+    - 8.8.8.8
+    - 1.1.1.1
+
+rules:
+  - MATCH,DIRECT
+EOF
+fi
+
+# 检查是否配置了 Clash 订阅，如果有则启动 Clash
+if grep -q 'clash_subscription_url = ".' /app/data/setting.toml 2>/dev/null; then
+    if command -v clash >/dev/null 2>&1; then
+        echo "[Grok2API] 检测到 Clash 订阅配置，启动 Clash..."
+        clash -d /app/data/clash > /app/logs/clash.log 2>&1 &
+        sleep 2
+        if pgrep -x "clash" > /dev/null; then
+            echo "[Grok2API] Clash 启动成功"
+        else
+            echo "[Grok2API] Clash 启动失败，请检查日志"
+        fi
+    fi
+fi
+
 echo "[Grok2API] 启动应用..."
 
 # 执行传入的命令
