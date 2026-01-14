@@ -28,9 +28,9 @@ RUN rm -rf /usr/share/doc/* \
   /tmp/* \
   /var/tmp/*
 
-# 下载 Clash Meta (mihomo)
+# 下载 Clash Meta (mihomo) - 使用 Alpha 版本以支持 Hysteria2 等新协议
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
-  wget -q -O /tmp/mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.18.10/mihomo-linux-amd64-v1.18.10.gz && \
+  wget -q -O /tmp/mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.19.0/mihomo-linux-amd64-v1.19.0.gz && \
   gunzip /tmp/mihomo.gz && \
   mv /tmp/mihomo /usr/local/bin/clash && \
   chmod +x /usr/local/bin/clash && \

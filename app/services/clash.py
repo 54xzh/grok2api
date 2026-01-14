@@ -253,18 +253,43 @@ class ClashManager:
         
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                # 切换 GLOBAL 选择器
-                resp = await client.put(
-                    f"{CLASH_API}/proxies/GLOBAL",
-                    json={"name": name}
-                )
+                # 尝试多个常见的代理组名称
+                selector_groups = ["GLOBAL", "Proxy", "🚀 节点选择", "✈️ 节点选择", "节点选择", "🔰 节点选择"]
                 
-                if resp.status_code == 204:
-                    self._current_proxy = name
-                    logger.info(f"[Clash] 切换节点: {name}")
-                    return {"success": True, "node": name}
-                else:
-                    return {"success": False, "error": f"切换失败: {resp.status_code}"}
+                # 首先获取所有代理组
+                resp = await client.get(f"{CLASH_API}/proxies")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    proxies = data.get("proxies", {})
+                    # 查找 Selector 类型的代理组
+                    for proxy_name, info in proxies.items():
+                        if info.get("type") == "Selector":
+                            selector_groups.insert(0, proxy_name)
+                
+                # 尝试切换
+                last_error = ""
+                for group in selector_groups:
+                    try:
+                        resp = await client.put(
+                            f"{CLASH_API}/proxies/{group}",
+                            json={"name": name}
+                        )
+                        
+                        if resp.status_code == 204:
+                            self._current_proxy = name
+                            logger.info(f"[Clash] 成功切换节点 (via {group}): {name}")
+                            return {"success": True, "node": name}
+                        elif resp.status_code == 400:
+                            # 400 表示这个节点不在这个组中，尝试下一个组
+                            last_error = f"节点 {name} 不在代理组 {group} 中"
+                            continue
+                        else:
+                            last_error = f"切换失败: {resp.status_code}"
+                    except Exception as e:
+                        last_error = str(e)
+                        continue
+                
+                return {"success": False, "error": last_error or "未找到可用的代理组"}
                     
         except Exception as e:
             logger.error(f"[Clash] 切换节点失败: {e}")
