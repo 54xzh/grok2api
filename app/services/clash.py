@@ -102,20 +102,66 @@ class ClashManager:
         try:
             logger.info(f"[Clash] 正在更新订阅...")
             
+            # 添加 User-Agent 头，有些订阅服务需要
+            headers = {
+                "User-Agent": "ClashMetaForAndroid/2.8.9.Meta",
+                "Accept": "*/*"
+            }
+            
             async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-                resp = await client.get(sub_url)
+                resp = await client.get(sub_url, headers=headers)
                 resp.raise_for_status()
                 content = resp.text
             
-            # 解析订阅内容
+            logger.debug(f"[Clash] 订阅内容长度: {len(content)}")
+            
+            config = None
+            
+            # 尝试直接解析为 YAML
             try:
                 config = yaml.safe_load(content)
+                if isinstance(config, dict) and "proxies" in config:
+                    logger.info("[Clash] 检测到 Clash YAML 格式订阅")
             except:
-                return {"success": False, "error": "订阅内容解析失败"}
+                config = None
             
-            # 确保必要的配置项
-            if "proxies" not in config:
-                return {"success": False, "error": "订阅中没有代理节点"}
+            # 如果不是 YAML，尝试 base64 解码
+            if config is None or not isinstance(config, dict) or "proxies" not in config:
+                try:
+                    import base64
+                    # 尝试 base64 解码
+                    decoded = base64.b64decode(content).decode('utf-8')
+                    config = yaml.safe_load(decoded)
+                    if isinstance(config, dict) and "proxies" in config:
+                        logger.info("[Clash] 检测到 Base64 编码的 Clash 订阅")
+                except:
+                    pass
+            
+            # 如果还是没有 proxies，可能是其他格式的订阅链接
+            if config is None or not isinstance(config, dict):
+                # 尝试添加 clash 参数重新获取
+                if "?" in sub_url:
+                    clash_url = sub_url + "&flag=clash"
+                else:
+                    clash_url = sub_url + "?flag=clash"
+                
+                logger.info("[Clash] 尝试使用 flag=clash 参数获取...")
+                async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                    resp = await client.get(clash_url, headers=headers)
+                    if resp.status_code == 200:
+                        try:
+                            config = yaml.safe_load(resp.text)
+                        except:
+                            pass
+            
+            # 最终检查
+            if config is None or not isinstance(config, dict):
+                logger.error(f"[Clash] 无法解析订阅内容，前100字符: {content[:100]}")
+                return {"success": False, "error": "订阅内容格式不正确，请确保是 Clash 格式订阅"}
+            
+            if "proxies" not in config or not config["proxies"]:
+                logger.error(f"[Clash] 订阅中没有 proxies 字段，配置keys: {list(config.keys())}")
+                return {"success": False, "error": "订阅中没有代理节点，请检查订阅是否为 Clash 格式"}
             
             # 添加/覆盖必要配置
             config["mixed-port"] = 7890
