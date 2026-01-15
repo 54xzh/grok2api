@@ -4,6 +4,7 @@ import asyncio
 import base64
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -61,14 +62,25 @@ class ClashManager:
         
         try:
             # 更新订阅配置
-            await self.update_subscription()
+            sub_result = await self.update_subscription()
+            if not sub_result.get("success"):
+                logger.warning(f"[Clash] 订阅更新失败: {sub_result.get('error', 'unknown')}")
+
+            # 启动前快速校验当前配置，避免启动后直接崩溃/超时
+            config_path = self._get_config_path()
+            if config_path.exists():
+                ok, validate_msg = self._validate_config_file(config_path)
+                if not ok:
+                    logger.error(f"[Clash] 配置校验失败，拒绝启动: {validate_msg}")
+                    return False
             
             # 启动 Clash
+            config_dir = self._get_config_path().parent
             log_path = self._get_log_path()
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(log_path, "a", encoding="utf-8") as log_file:
                 self._process = subprocess.Popen(
-                    ["clash", "-d", str(CLASH_DIR)],
+                    ["clash", "-d", str(config_dir)],
                     stdout=log_file,
                     stderr=subprocess.STDOUT
                 )
@@ -77,6 +89,10 @@ class ClashManager:
             # 等待启动
             for _ in range(10):
                 await asyncio.sleep(0.5)
+                if self._process and self._process.poll() is not None:
+                    tail = self._read_log_tail(log_path)
+                    logger.error(f"[Clash] 启动失败：进程已退出\n{tail}" if tail else "[Clash] 启动失败：进程已退出")
+                    return False
                 if await self.is_running():
                     logger.info("[Clash] 启动成功")
                     
@@ -225,12 +241,30 @@ class ClashManager:
             self._ensure_global_group(config)
             if not isinstance(config.get("rules"), list) or not config.get("rules"):
                 config["rules"] = ["MATCH,GLOBAL"]
+
+            # 订阅转换器/URI 订阅中有时会把浏览器指纹写到 fingerprint 字段；
+            # mihomo 将 fingerprint 视为证书指纹绑定（hex），浏览器指纹应使用 client-fingerprint。
+            self._normalize_proxies(config.get("proxies", []))
             
             # 保存配置（支持本地开发和 Docker 环境）
             config_path = self._get_config_path()
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(config_path, "w", encoding="utf-8") as f:
+
+            tmp_path = config_path.with_name(f"{config_path.name}.tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
+
+            ok, validate_msg = self._validate_config_file(tmp_path)
+            if not ok:
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+
+                logger.error(f"[Clash] 配置校验失败: {validate_msg}")
+                return {"success": False, "error": f"Clash 配置校验失败: {validate_msg}"}
+
+            tmp_path.replace(config_path)
             
             self._last_update = datetime.now()
             self._proxies_cache = []  # 清除缓存
@@ -315,6 +349,84 @@ class ClashManager:
         if docker_logs.exists():
             return docker_logs / "clash.log"
         return Path(__file__).parents[2] / "logs" / "clash.log"
+
+    def _read_log_tail(self, log_path: Path, max_bytes: int = 8192, max_lines: int = 25) -> str:
+        try:
+            if not log_path.exists():
+                return ""
+
+            with open(log_path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                end = f.tell()
+                start = max(0, end - max_bytes)
+                f.seek(start, os.SEEK_SET)
+                data = f.read()
+
+            text = data.decode("utf-8", errors="replace")
+            return "\n".join(text.splitlines()[-max_lines:]).strip()
+        except Exception:
+            return ""
+
+    def _validate_config_file(self, config_path: Path) -> tuple[bool, str]:
+        """调用 mihomo/clash 自检配置，避免写入不可启动的配置文件"""
+        clash_bin = shutil.which("clash")
+        if not clash_bin:
+            return True, ""
+
+        try:
+            proc = subprocess.run(
+                [clash_bin, "-t", "-f", str(config_path)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            return False, "验证超时"
+        except Exception as e:
+            return False, str(e)
+
+        if proc.returncode == 0:
+            return True, ""
+
+        combined = "\n".join([proc.stdout or "", proc.stderr or ""]).strip()
+        if not combined:
+            return False, f"exit_code={proc.returncode}"
+
+        tail_lines = combined.splitlines()[-25:]
+        return False, "\n".join(tail_lines)
+
+    def _normalize_proxies(self, proxies: Any) -> None:
+        if not isinstance(proxies, list):
+            return
+
+        for proxy in proxies:
+            if isinstance(proxy, dict):
+                self._normalize_proxy_fields(proxy)
+
+    def _normalize_proxy_fields(self, proxy: Dict[str, Any]) -> None:
+        for k in list(proxy.keys()):
+            if proxy.get(k) is None:
+                proxy.pop(k, None)
+
+        fingerprint = proxy.get("fingerprint")
+        if not isinstance(fingerprint, str):
+            return
+
+        fp = fingerprint.strip()
+        if not fp:
+            proxy.pop("fingerprint", None)
+            return
+
+        # 仅在明显不是 hex 指纹时迁移，避免影响证书指纹绑定场景
+        if not self._looks_like_hex_fingerprint(fp):
+            proxy.setdefault("client-fingerprint", fp)
+            proxy.pop("fingerprint", None)
+
+    def _looks_like_hex_fingerprint(self, value: str) -> bool:
+        v = (value or "").strip().replace(":", "")
+        if len(v) < 32 or len(v) % 2 != 0:
+            return False
+        return bool(re.fullmatch(r"[0-9a-fA-F]+", v))
 
     def _write_pid_file(self, pid: int) -> None:
         """写入 PID 文件（便于 stop 精准结束进程）"""
@@ -439,7 +551,12 @@ class ClashManager:
                 continue
 
             proxy = None
-            if line.startswith(("hysteria2://", "hy2://")):
+            if line.startswith("-"):
+                line = line.lstrip("-").strip()
+                if not line:
+                    continue
+
+            if line.lower().startswith(("hysteria2://", "hy2://")):
                 proxy = self._parse_hysteria2_uri(line)
 
             if proxy:
@@ -466,7 +583,18 @@ class ClashManager:
             elif u.username:
                 password = unquote(u.username)
             if not password:
-                password = self._first_query_value(q, ["password", "auth", "passwd"])
+                password = self._first_query_value(
+                    q,
+                    [
+                        "password",
+                        "auth",
+                        "passwd",
+                        "auth_str",
+                        "auth-str",
+                        "authstr",
+                        "token",
+                    ],
+                )
             if not password:
                 return None
 
@@ -480,7 +608,7 @@ class ClashManager:
                 "password": password,
             }
 
-            ports = self._first_query_value(q, ["ports"])
+            ports = self._first_query_value(q, ["ports", "mport"])
             if ports:
                 proxy["ports"] = ports
 
@@ -496,7 +624,17 @@ class ClashManager:
             if obfs:
                 proxy["obfs"] = obfs
 
-            obfs_password = self._first_query_value(q, ["obfs-password", "obfs_password", "obfsPassword"])
+            obfs_password = self._first_query_value(
+                q,
+                [
+                    "obfs-password",
+                    "obfs_password",
+                    "obfsPassword",
+                    "obfs-param",
+                    "obfsParam",
+                    "obfsparam",
+                ],
+            )
             if obfs_password:
                 proxy["obfs-password"] = obfs_password
 
@@ -508,9 +646,15 @@ class ClashManager:
             if self._is_truthy(insecure):
                 proxy["skip-cert-verify"] = True
 
-            fingerprint = self._first_query_value(q, ["fingerprint"])
-            if fingerprint:
-                proxy["fingerprint"] = fingerprint
+            client_fingerprint = self._first_query_value(
+                q, ["client-fingerprint", "client_fingerprint", "clientFingerprint", "fp"]
+            )
+            if not client_fingerprint:
+                fingerprint = self._first_query_value(q, ["fingerprint"])
+                if fingerprint:
+                    client_fingerprint = fingerprint
+            if client_fingerprint:
+                proxy["client-fingerprint"] = client_fingerprint
 
             alpn_list = self._parse_alpn(q.get("alpn", []))
             if alpn_list:

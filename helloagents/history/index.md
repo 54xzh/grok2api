@@ -9,6 +9,7 @@
 | 时间戳 | 功能名称 | 类型 | 状态 | 方案包路径 |
 |--------|----------|------|------|------------|
 | 202601150001 | clash_builtin_fix | 修复 | ✅已完成 | [202601150001_clash_builtin_fix](2026-01/202601150001_clash_builtin_fix/) |
+| 202601151517 | clash_hy2_start_fix | 修复 | ✅已完成 | [202601151517_clash_hy2_start_fix](2026-01/202601151517_clash_hy2_start_fix/) |
 
 ---
 
@@ -17,4 +18,4 @@
 ### 2026-01
 
 - [202601150001_clash_builtin_fix](2026-01/202601150001_clash_builtin_fix/) - 内置 Clash：订阅/切换/停止修复
-
+- [202601151517_clash_hy2_start_fix](2026-01/202601151517_clash_hy2_start_fix/) - 内置 Clash：hy2 导入与启动修复

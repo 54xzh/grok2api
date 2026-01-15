@@ -11,4 +11,6 @@
 - 修复 Base64 URI 订阅中 `hysteria2://` 节点无法导入的问题（解析 hysteria2 节点并合并到 Clash YAML）
 - 修复 Docker 启动时未写入 Clash PID 导致停止不稳定的问题（写入 `clash.pid`，并在后端优先按 PID 结束）
 - 修复管理台启停 Clash 后节点列表刷新逻辑错误的问题
-
+- 修复 hysteria2(hy2) URI 订阅中指纹字段兼容问题（浏览器指纹写入 `client-fingerprint`）
+- 修复订阅更新写入无效配置导致 Clash 启动崩溃/超时的问题（写入前 `clash -t` 校验 + 原子替换；启动前快速校验与日志 tail）
+- 升级内置 mihomo 至 `v1.19.18`（支持通过 `MIHOMO_VERSION` 覆盖）

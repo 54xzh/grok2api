@@ -14,6 +14,11 @@
 **模块:** services
 订阅更新、节点切换与启停必须可用，且对常见订阅格式具备兼容性。
 
+实现要点
+- 订阅配置写入前执行 `clash -t` 校验，失败则不覆盖旧配置
+- hysteria2(hy2) URI 中 `fingerprint`（浏览器指纹）写入 `client-fingerprint`，避免 mihomo 误判为证书指纹绑定
+- 启动时检测进程提前退出并输出 `clash.log` 尾部，避免“启动超时”无信息
+
 #### 场景: Base64 URI 订阅（含 hysteria2）
 前置条件
 - 订阅链接返回 base64 编码文本
@@ -41,4 +46,3 @@
 
 ## 变更历史
 后续按 `helloagents/history/` 记录索引补齐。
-
