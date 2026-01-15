@@ -5,7 +5,7 @@ set -e
 echo "[Grok2API] 检查配置文件..."
 
 # 确保数据目录存在
-mkdir -p /app/data/temp/image /app/data/temp/video /app/logs
+mkdir -p /app/data/temp/image /app/data/temp/video /app/logs /app/data/clash
 
 # 如果 setting.toml 不存在，创建默认配置
 if [ ! -f /app/data/setting.toml ]; then
@@ -83,8 +83,9 @@ if grep -q 'clash_subscription_url = ".' /app/data/setting.toml 2>/dev/null; the
     if command -v clash >/dev/null 2>&1; then
         echo "[Grok2API] 检测到 Clash 订阅配置，启动 Clash..."
         clash -d /app/data/clash > /app/logs/clash.log 2>&1 &
+        echo $! > /app/data/clash/clash.pid
         sleep 2
-        if pgrep -x "clash" > /dev/null; then
+        if [ -s /app/data/clash/clash.pid ] && kill -0 "$(cat /app/data/clash/clash.pid)" 2>/dev/null; then
             echo "[Grok2API] Clash 启动成功"
         else
             echo "[Grok2API] Clash 启动失败，请检查日志"
